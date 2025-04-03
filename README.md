@@ -17,7 +17,9 @@
 
 
 ## Requirements
-- PyTorch 2.6.0
+- torch
+- fair-esm
+
 
 ## Usage
 1. Train the Instructors model with `train_ESM_predictor.py`
