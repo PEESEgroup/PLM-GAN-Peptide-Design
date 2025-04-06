@@ -22,12 +22,9 @@ class pepDataset(Dataset):
 
 
 def load_tokenizer():
-    if os.name == 'nt': # windows
-        folder_path = os.path.dirname(os.path.abspath(__file__))
-    else:
-        folder_path = "./"
+    folder_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    tok2idx_path = os.path.join(folder_path, 'model_save', 'tok2idx.pkl')
+    tok2idx_path = os.path.join(folder_path, 'data', 'tok2idx.pkl')
     with open(tok2idx_path, 'rb') as f:
         tok2idx = pickle.load(f)
     return tok2idx
@@ -72,10 +69,7 @@ def select_device():
 
 def predict_affinity_score(peptides_list, plastic_name, device, batch_size = 1000):
 
-    if os.name == 'nt': # windows
-        folder_path = os.path.dirname(os.path.abspath(__file__))
-    else:
-        folder_path = "./"
+    folder_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     # tokenize peptide sequence
     tok2idx = load_tokenizer()
@@ -89,12 +83,12 @@ def predict_affinity_score(peptides_list, plastic_name, device, batch_size = 100
     # load pre-trained predictor model
     esm_model = modifyESM2()
     esm_model.to(device)
-    esm_model_path = os.path.join(folder_path, 'model_save', plastic_name+'_esm_model.pth')
+    esm_model_path = os.path.join(folder_path, 'data', plastic_name+'_esm_model.pth')
     esm_model.load_state_dict(torch.load(esm_model_path, map_location=device, weights_only=True))
 
     predictor = predictorNet()
     predictor.to(device)
-    predictor_path = os.path.join(folder_path, 'model_save', plastic_name+'_predictor.pth')
+    predictor_path = os.path.join(folder_path, 'data', plastic_name+'_predictor.pth')
     predictor.load_state_dict(torch.load(predictor_path, map_location=device, weights_only=True))
 
     esm_model.eval()

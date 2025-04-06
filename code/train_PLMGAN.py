@@ -57,10 +57,7 @@ if __name__ == '__main__':
     # get script and folder name
     script_name = os.path.splitext(os.path.basename(__file__))[0] + args.script_id
 
-    if os.name == 'nt': # windows
-        folder_path = os.path.dirname(os.path.abspath(__file__))
-    else:
-        folder_path = "./"
+    folder_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     save_model_dir = os.path.join(folder_path, script_name)
     if not os.path.exists(save_model_dir): 
@@ -71,11 +68,9 @@ if __name__ == '__main__':
     print("Tokenizer Loaded")
 
     # load peptide data
-    data_folder_path = os.path.join(folder_path, "PepBD")
+    data_folder_path = os.path.join(folder_path, 'data')
     df_data = pd.read_csv(os.path.join(data_folder_path,'collected_peptides.csv'))
 
-    if os.name == 'nt': # windows
-        df_data = df_data.sample(n=1000, random_state=random_seed) 
     print("Peptide Data Loaded # ", df_data.shape[0])
 
     peptide_sequence = df_data.iloc[:, 0].to_list()
@@ -99,7 +94,7 @@ if __name__ == '__main__':
     for plastic in plastic_list:
         esm_model = modifyESM2()
         esm_model.to(device)
-        esm_model_path = os.path.join(folder_path, 'model_save', plastic + '_esm_model.pth')
+        esm_model_path = os.path.join(folder_path, 'data', plastic + '_esm_model.pth')
         esm_model.load_state_dict(torch.load(esm_model_path, map_location=device, weights_only=True))
         esm_model_list.append(esm_model)
     print('Loaded esm_model Model')
@@ -107,7 +102,7 @@ if __name__ == '__main__':
     for plastic in plastic_list:
         predictor = predictorNet()
         predictor.to(device)
-        predictor_path = os.path.join(folder_path, 'model_save', plastic + '_predictor.pth')
+        predictor_path = os.path.join(folder_path, 'data', plastic + '_predictor.pth')
         predictor.load_state_dict(torch.load(predictor_path, map_location=device, weights_only=True))
         predictor_list.append(predictor)
     print('Loaded predictor Model')

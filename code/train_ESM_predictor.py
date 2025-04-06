@@ -42,21 +42,15 @@ device = select_device()
 # get script and folder name
 script_name = os.path.splitext(os.path.basename(__file__))[0]
 
-if os.name == 'nt': # windows
-    folder_path = os.path.dirname(os.path.abspath(__file__))
-else:
-    folder_path = "./"
+folder_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # load tokenizer
 tok2idx = load_tokenizer()
 print("Tokenizer Loaded")
 
 # load peptide data
-data_folder_path = os.path.join(folder_path, "PepBD")
+data_folder_path = os.path.join(folder_path, 'data')
 df = pd.read_csv(os.path.join(data_folder_path, plastic_name + '_clean.csv'))
-
-if os.name == 'nt': # windows
-    df = df.sample(n=1000, random_state=random_seed) 
 print("Peptide Data Loaded # ", df.shape[0])
 
 peptide_sequence = df.iloc[:, 0].to_list()
@@ -81,7 +75,7 @@ print("Dataset and Dataloader Constructed")
 # load pre-trained predictor model
 esm_model = modifyESM2()
 esm_model.to(device)
-esm_model_path = os.path.join(folder_path, 'model_save', 'predictor', 'pretrained_ESM6_modified.pth')
+esm_model_path = os.path.join(folder_path, 'data', 'predictor', 'pretrained_ESM6_modified.pth')
 esm_model.load_state_dict(torch.load(esm_model_path, map_location=device, weights_only=True))
 print('Loaded pretrained ESM-2 Model')
 
@@ -131,11 +125,11 @@ if running_mode == 0:
 		print(f"Epoch {epoch + 1}: Learning Rate = {current_lr}")
 		
 		# Save model parameters
-		predictor_save_path = os.path.join(folder_path, 'model_save', 'predictor', plastic_name + '_predictor_'+'epch_'+ "{:02}".format(epoch + 1) +'.pth')
+		predictor_save_path = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_predictor_'+'epch_'+ "{:02}".format(epoch + 1) +'.pth')
 		torch.save(predictor.state_dict(), predictor_save_path)
 		print('Saved ' + predictor_save_path)
 
-		esmModel_save_path = os.path.join(folder_path, 'model_save', 'predictor', plastic_name + '_esm_model_'+ 'epch_'+ "{:02}".format(epoch + 1) +'.pth')
+		esmModel_save_path = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_esm_model_'+ 'epch_'+ "{:02}".format(epoch + 1) +'.pth')
 		torch.save(esm_model.state_dict(), esmModel_save_path)
 		print('Saved ' + esmModel_save_path)
 
@@ -156,11 +150,11 @@ if running_mode == 0:
 else:
 	print(" ----- Start Test Process ----- ")
 
-	esm_model_path = os.path.join(folder_path, 'model_save', 'predictor', plastic_name + '_esm_model_epch_20.pth')
+	esm_model_path = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_esm_model_epch_20.pth')
 	esm_model.load_state_dict(torch.load(esm_model_path, map_location=device, weights_only=True))
 	esm_model.eval()
 
-	predictor_path = os.path.join(folder_path, 'model_save', 'predictor', plastic_name + '_predictor_epch_20.pth')
+	predictor_path = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_predictor_epch_20.pth')
 	predictor.load_state_dict(torch.load(predictor_path, map_location=device, weights_only=True))
 	predictor.eval()
 
@@ -182,7 +176,7 @@ else:
 			predict_score.extend(outputs.squeeze().cpu().numpy())
 
 
-	test_score_file = os.path.join(folder_path, 'model_save', 'predictor', plastic_name + '_test_score.npz')
+	test_score_file = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_test_score.npz')
 	np.savez(test_score_file, real_score=real_score, predict_score=predict_score)
 	print("Saved file " + test_score_file)
 
