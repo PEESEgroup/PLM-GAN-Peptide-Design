@@ -11,10 +11,8 @@ import pandas as pd
 from utilities import *
 
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument('-p', "--plastic_name", type = str, default = 'PE')
-parser.add_argument('-m', "--running_mode", type = int, help = "0: train, 1: test", default = 0)
 parser.add_argument('-bz', "--batch_size", type = int, default = 64)
 parser.add_argument('-lr', "--learning_rate", type = float, default = 1e-4)
 parser.add_argument('-epch', "--num_epochs", type = int, default = 20)
@@ -33,8 +31,8 @@ random.seed(random_seed)
 np.random.seed(random_seed)
 torch.manual_seed(random_seed)
 if torch.cuda.is_available():
-    torch.cuda.manual_seed(random_seed)
-    torch.cuda.manual_seed_all(random_seed)
+	torch.cuda.manual_seed(random_seed)
+	torch.cuda.manual_seed_all(random_seed)
 
 # select device
 device = select_device()
@@ -59,18 +57,26 @@ affinity_label = df.iloc[:, 1].to_list()
 # tokenize peptide sequence
 peptide_tokens = []
 for peptide in peptide_sequence:
-    tokens = [tok2idx[acid] for acid in peptide]
-    peptide_tokens.append(tokens)
+	tokens = [tok2idx[acid] for acid in peptide]
+	peptide_tokens.append(tokens)
 peptide_tokens = torch.tensor(peptide_tokens)
 
 dataset = pepDataset(peptide_tokens, affinity_label)
-train_size = int(0.7 * len(dataset))
-val_size = len(dataset) - train_size
-train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+total_size = len(dataset)
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
-print("Dataset and Dataloader Constructed")
+test_size = int(0.2 * total_size)
+remaining_size = total_size - test_size
+train_size = int(0.6 * total_size)
+val_size = remaining_size - train_size
+dataset_remain, test_dataset = random_split(dataset, [remaining_size, test_size])
+
+test_loader = DataLoader(
+	test_dataset,
+	batch_size=batch_size,
+	shuffle=False,
+	drop_last=False
+)
+print(f"Total samples: {total_size}, Remaining for train/val: {remaining_size}, Test: {test_size}")
 
 # load pre-trained predictor model
 esm_model = modifyESM2()
@@ -90,95 +96,98 @@ predictor_scheduler = StepLR(predictor_optimizer, step_size=4, gamma=0.5)
 
 criterion = nn.MSELoss()
 
-if running_mode == 0:
-	print(" ----- Start Training Process ----- ")
 
-	for epoch in range(num_epochs):
-		running_loss = 0.0
+for epoch in range(num_epochs):
 
-		esm_model.train()
-		predictor.train()
-		for batch_idx, (batch_data, batch_labels) in enumerate(train_loader):
+	train_dataset, val_dataset = random_split(
+		dataset_remain,
+		[train_size, val_size]
+	)
+
+	train_loader = DataLoader(
+		train_dataset,
+		batch_size=batch_size,
+		shuffle=True,
+		drop_last=True
+	)
+	val_loader = DataLoader(
+		val_dataset,
+		batch_size=batch_size,
+		shuffle=False,
+		drop_last=False
+	)
+
+	running_loss = 0.0
+
+	esm_model.train()
+	predictor.train()
+	for batch_idx, (batch_data, batch_labels) in enumerate(train_loader):
+
+		batch_data, batch_labels = batch_data.to(device), batch_labels.to(device)
+		batch_onehot = F.one_hot(batch_data, num_classes=20).float()
+		outputs = predictor(esm_model(batch_onehot))
+		loss = criterion(outputs.squeeze(), batch_labels)  
+
+		esm_model_optimizer.zero_grad() 
+		predictor_optimizer.zero_grad()
+		loss.backward() 
+		esm_model_optimizer.step() 
+		predictor_optimizer.step()
+
+		running_loss += loss.item()
+
+		if (batch_idx + 1) % 200 == 0:
+			print(f"Epoch [{epoch + 1}/{num_epochs}], Batch [{batch_idx + 1}/{len(train_loader)}], Loss: {loss.item():.4f}")
+
+	print(f"Epoch [{epoch + 1}/{num_epochs}] Training Average Loss: {running_loss / len(train_loader):.4f}")
+
+	# adjust learning rate
+	esm_model_scheduler.step()
+	predictor_scheduler.step()
+	current_lr = esm_model_optimizer.param_groups[0]['lr']
+	print(f"Epoch {epoch + 1}: Learning Rate = {current_lr}")
+
+
+	# validate model
+	predictor.eval() 
+	esm_model.eval()
+	val_loss = 0.0
+	with torch.no_grad(): 
+		for batch_idx, (batch_data, batch_labels) in enumerate(val_loader):
 
 			batch_data, batch_labels = batch_data.to(device), batch_labels.to(device)
 			batch_onehot = F.one_hot(batch_data, num_classes=20).float()
 			outputs = predictor(esm_model(batch_onehot))
-			loss = criterion(outputs.squeeze(), batch_labels)  
+			val_loss += criterion(outputs.squeeze(), batch_labels).item()
 
-			esm_model_optimizer.zero_grad() 
-			predictor_optimizer.zero_grad()
-			loss.backward() 
-			esm_model_optimizer.step() 
-			predictor_optimizer.step()
+	print(f"Epoch [{epoch + 1}/{num_epochs}] Validation Loss: {val_loss / len(val_loader):.4f}")
 
-			running_loss += loss.item()
 
-			if (batch_idx + 1) % 200 == 0:
-				print(f"Epoch [{epoch + 1}/{num_epochs}], Batch [{batch_idx + 1}/{len(train_loader)}], Loss: {loss.item():.4f}")
-
-		print(f"Epoch [{epoch + 1}/{num_epochs}] Training Average Loss: {running_loss / len(train_loader):.4f}")
-
-		# adjust learning rate
-		esm_model_scheduler.step()
-		predictor_scheduler.step()
-		current_lr = esm_model_optimizer.param_groups[0]['lr']
-		print(f"Epoch {epoch + 1}: Learning Rate = {current_lr}")
-		
-		# Save model parameters
-		predictor_save_path = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_predictor_'+'epch_'+ "{:02}".format(epoch + 1) +'.pth')
-		torch.save(predictor.state_dict(), predictor_save_path)
-		print('Saved ' + predictor_save_path)
-
-		esmModel_save_path = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_esm_model_'+ 'epch_'+ "{:02}".format(epoch + 1) +'.pth')
-		torch.save(esm_model.state_dict(), esmModel_save_path)
-		print('Saved ' + esmModel_save_path)
-
-		# validate model
-		predictor.eval() 
-		esm_model.eval()
-		val_loss = 0.0
-		with torch.no_grad(): 
-			for batch_idx, (batch_data, batch_labels) in enumerate(val_loader):
-
-				batch_data, batch_labels = batch_data.to(device), batch_labels.to(device)
-				batch_onehot = F.one_hot(batch_data, num_classes=20).float()
-				outputs = predictor(esm_model(batch_onehot))
-				val_loss += criterion(outputs.squeeze(), batch_labels).item()
-
-		print(f"Epoch [{epoch + 1}/{num_epochs}] Validation Loss: {val_loss / len(val_loader):.4f}")
-
-else:
-	print(" ----- Start Test Process ----- ")
-
-	esm_model_path = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_esm_model_epch_20.pth')
-	esm_model.load_state_dict(torch.load(esm_model_path, map_location=device, weights_only=True))
-	esm_model.eval()
-
-	predictor_path = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_predictor_epch_20.pth')
-	predictor.load_state_dict(torch.load(predictor_path, map_location=device, weights_only=True))
-	predictor.eval()
-
-	val_loss = 0.0
-
-	real_score = []
-	predict_score = []
-
+	# test model
+	test_loss = 0.0
 	with torch.no_grad(): 
-		for batch_idx, (batch_data, batch_labels) in enumerate(val_loader):
+		for batch_idx, (batch_data, batch_labels) in enumerate(test_loader):
 
 			batch_data, batch_labels = batch_data.to(device), batch_labels.to(device)
 			
 			batch_onehot = F.one_hot(batch_data, num_classes=20).float()
 			outputs = predictor(esm_model(batch_onehot))
-			val_loss += criterion(outputs.squeeze(), batch_labels).item()
+			test_loss += criterion(outputs.squeeze(), batch_labels).item()
 
-			real_score.extend(batch_labels.cpu().numpy())
-			predict_score.extend(outputs.squeeze().cpu().numpy())
+	print(f"Epoch [{epoch + 1}/{num_epochs}] Test Loss: {test_loss / len(test_loader):.4f}")
 
 
-	test_score_file = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_test_score.npz')
-	np.savez(test_score_file, real_score=real_score, predict_score=predict_score)
-	print("Saved file " + test_score_file)
+	# Save model parameters
+	predictor_save_path = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_predictor_'+'epch_'+ "{:02}".format(epoch + 1) +'.pth')
+	torch.save(predictor.state_dict(), predictor_save_path)
+	print('Saved ' + predictor_save_path)
+
+	esmModel_save_path = os.path.join(folder_path, 'data', 'predictor', plastic_name + '_esm_model_'+ 'epch_'+ "{:02}".format(epoch + 1) +'.pth')
+	torch.save(esm_model.state_dict(), esmModel_save_path)
+	print('Saved ' + esmModel_save_path)
+
+
+
 
 
 
